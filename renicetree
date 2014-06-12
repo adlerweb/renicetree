@@ -1,0 +1,79 @@
+#!/bin/bash
+
+#renicetree - change niceness of a process including its childs
+#    Copyright (C) 2014  Florian Knodt
+#
+#    This program is free software: you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation, either version 3 of the License, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+
+if [ $# -lt 2 ] ; then
+	echo renicetree - change niceness of a process including its childs
+	echo
+	echo Usage: $0 Niceness PID [1]
+	echo        Niceness - Level between -20 and 19
+	echo                   Note: Only root may set negative values
+	echo        PID      - Process ID of the parent
+	echo        1        - \(optional\) only process direct childs
+        echo                   no recursion
+	echo
+	echo Example: $0 -5 1234 1
+	exit 0
+fi
+
+pidtree=()
+niceness=$1
+if [ ! -z $3 ] ;then recursive=1 ;fi
+
+function cleanPidtree {
+	for ((i=0;i<${#pidtree[*]};i++)); do
+		unset pidtree_${pidtree[$i]}
+	done
+
+	unset pidtree
+	unset i
+	pidtree=()
+}
+
+function lookupPidtree {
+	cleanPidtree
+	for i in /proc/[0-9]*/stat ; do
+		localpid=`echo "$i" | cut -d '/' -f 3`
+		parent=`cat $i 2>/dev/null | cut -d ' ' -f 4`
+		if [ ! -z "`eval echo \\\$pidtree_${parent}`" ] ; then
+			eval `echo pidtree_${parent}+=\(\"${localpid}\"\)`
+		else
+			pidtree+=($parent)
+			eval `echo pidtree_${parent}=\(\"${localpid}\"\)`
+		fi
+
+		unset localpid
+		unset parent
+	done
+}
+
+function lookupChilds {
+	if [ ! -z "`eval echo \\\$pidtree_${1}`" ] ; then
+		for i in `eval echo \$\{pidtree_${1}\[@\]\}` ; do
+			renice -n $niceness $i
+			if [ -z $recursive ] ;then 
+				lookupChilds $i
+			fi
+		done
+	fi
+}
+
+renice -n $niceness $2
+lookupPidtree
+lookupChilds $2
+
